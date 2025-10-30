@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
   libxcomposite1 \
   libxdamage1 \
   libxrandr2 \
+  libgbm1 \
   xdg-utils \
   --no-install-recommends \
   && apt-get clean \
