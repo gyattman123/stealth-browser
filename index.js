@@ -22,13 +22,14 @@ app.get('/', async (req, res) => {
     });
 
     const page = await browser.newPage();
+
+    // Stealthy headers and user agent
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
+    // Load page and wait for JS to settle
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-    // Wait for full JS rendering (optional delay)
-    await page.waitForTimeout(3000);
+    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for JS rendering
 
     const html = await page.content();
     res.setHeader('Content-Type', 'text/html');
@@ -44,3 +45,4 @@ app.get('/', async (req, res) => {
 app.listen(process.env.PORT || 3000, () => {
   console.log('🚀 Puppeteer proxy running');
 });
+
