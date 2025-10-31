@@ -31,7 +31,7 @@ app.get('/', async (req, res) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await new Promise(resolve => setTimeout(resolve, 3000)); // JS settle time
 
-    // Rewrite all links and forms to stay inside proxy
+    // Rewrite links and forms to stay inside proxy
     await page.evaluate(() => {
       const rewrite = href => {
         if (!href || !href.startsWith('http')) return href;
@@ -50,7 +50,12 @@ app.get('/', async (req, res) => {
       });
     });
 
-    const html = await page.content();
+    // Get HTML and sanitize it
+    let html = await page.content();
+    html = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove all scripts
+      .replace(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, ''); // Remove meta refresh
+
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (err) {
@@ -62,5 +67,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Puppeteer proxy with wrapper running');
+  console.log('🚀 Puppeteer proxy with full sanitization running');
 });
