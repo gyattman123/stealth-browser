@@ -8,7 +8,7 @@ app.get('/', async (req, res) => {
   let input = req.query.q;
   if (!input) return res.status(400).send('Missing ?q=');
 
-  input = decodeURIComponent(input); // 🔥 Decode before checking
+  input = decodeURIComponent(input);
 
   if (!input.startsWith('http')) {
     input = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(input);
@@ -18,8 +18,11 @@ app.get('/', async (req, res) => {
     try {
       const response = await fetch(input);
       if (!response.ok) throw new Error(`Asset fetch failed: ${response.status}`);
-      res.setHeader('Content-Type', response.headers.get('content-type') || 'application/octet-stream');
-      response.body.pipe(res); // ✅ Stream directly
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      console.log(`Streaming asset: ${input} → ${contentType}`);
+      const buffer = await response.arrayBuffer();
+      res.setHeader('Content-Type', contentType);
+      res.send(Buffer.from(buffer));
       return;
     } catch (err) {
       console.error('Asset error:', err.message);
