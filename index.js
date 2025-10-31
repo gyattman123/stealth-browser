@@ -30,10 +30,9 @@ app.get('/', async (req, res) => {
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    await page.goto(input, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await page.goto(input, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Rewrite links/forms to stay inside proxy
+    // Rewrite links and forms to stay inside proxy
     await page.evaluate(() => {
       const rewrite = href => {
         if (!href || !href.startsWith('http')) return href;
@@ -46,18 +45,15 @@ app.get('/', async (req, res) => {
 
       document.querySelectorAll('form').forEach(form => {
         const action = form.getAttribute('action');
-        if (action && action.startsWith('http')) {
+        if (action && action.startsWith('/')) {
+          form.setAttribute('action', '/?q=' + encodeURIComponent('https://www.google.com' + action));
+        } else if (action && action.startsWith('http')) {
           form.setAttribute('action', '/?q=' + encodeURIComponent(action));
         }
       });
     });
 
-    // Strip scripts and meta refresh
-    let html = await page.content();
-    html = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, '');
-
+    const html = await page.content();
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (err) {
@@ -69,5 +65,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Smart Puppeteer proxy running');
+  console.log('🚀 Full JS Puppeteer proxy running');
 });
