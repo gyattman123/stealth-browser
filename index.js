@@ -3,8 +3,13 @@ const puppeteer = require('puppeteer');
 const app = express();
 
 app.get('/', async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).send('Missing ?url=');
+  let input = req.query.q;
+  if (!input) return res.status(400).send('Missing ?q=');
+
+  // Convert search term to Wikipedia article if not a full URL
+  if (!input.startsWith('http')) {
+    input = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(input);
+  }
 
   let browser;
   try {
@@ -22,20 +27,17 @@ app.get('/', async (req, res) => {
     });
 
     const page = await browser.newPage();
-
-    // Set headers for stealth
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    // Load the page
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 3000)); // Let JS settle
+    await page.goto(input, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // Rewrite links and forms to stay inside proxy
+    // Rewrite links/forms to stay inside proxy
     await page.evaluate(() => {
       const rewrite = href => {
         if (!href || !href.startsWith('http')) return href;
-        return '/?url=' + encodeURIComponent(href);
+        return '/?q=' + encodeURIComponent(href);
       };
 
       document.querySelectorAll('a').forEach(a => {
@@ -45,16 +47,16 @@ app.get('/', async (req, res) => {
       document.querySelectorAll('form').forEach(form => {
         const action = form.getAttribute('action');
         if (action && action.startsWith('http')) {
-          form.setAttribute('action', '/?url=' + encodeURIComponent(action));
+          form.setAttribute('action', '/?q=' + encodeURIComponent(action));
         }
       });
     });
 
-    // Get HTML and sanitize it
+    // Strip scripts and meta refresh
     let html = await page.content();
     html = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove all scripts
-      .replace(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, ''); // Remove meta refresh
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, '');
 
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
@@ -67,5 +69,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Puppeteer proxy with full sanitization running');
+  console.log('🚀 Smart Puppeteer proxy running');
 });
