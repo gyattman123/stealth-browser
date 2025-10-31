@@ -23,13 +23,13 @@ app.get('/', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // Stealthy headers
+    // Set headers for stealth
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    // Load page
+    // Load the page
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 3000)); // JS settle time
+    await new Promise(resolve => setTimeout(resolve, 3000)); // Let JS settle
 
     // Rewrite links and forms to stay inside proxy
     await page.evaluate(() => {
