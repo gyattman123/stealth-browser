@@ -23,13 +23,32 @@ app.get('/', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // Stealthy headers and user agent
+    // Stealthy headers
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    // Load page and wait for JS to settle
+    // Load page
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for JS rendering
+    await new Promise(resolve => setTimeout(resolve, 3000)); // JS settle time
+
+    // Rewrite all links and forms to stay inside proxy
+    await page.evaluate(() => {
+      const rewrite = href => {
+        if (!href || !href.startsWith('http')) return href;
+        return '/?url=' + encodeURIComponent(href);
+      };
+
+      document.querySelectorAll('a').forEach(a => {
+        a.href = rewrite(a.href);
+      });
+
+      document.querySelectorAll('form').forEach(form => {
+        const action = form.getAttribute('action');
+        if (action && action.startsWith('http')) {
+          form.setAttribute('action', '/?url=' + encodeURIComponent(action));
+        }
+      });
+    });
 
     const html = await page.content();
     res.setHeader('Content-Type', 'text/html');
@@ -43,6 +62,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Puppeteer proxy running');
+  console.log('🚀 Puppeteer proxy with wrapper running');
 });
-
