@@ -1,5 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const https = require('https');
 const app = express();
 
 const isAsset = url => /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|mp3|wav|ogg|css|js|woff2?|ttf|otf)(\?.*)?$/i.test(url);
@@ -16,13 +17,19 @@ app.get('/', async (req, res) => {
 
   if (isAsset(input)) {
     try {
-      const response = await fetch(input);
-      if (!response.ok) throw new Error(`Asset fetch failed: ${response.status}`);
-      const contentType = response.headers.get('content-type') || 'application/octet-stream';
-      console.log(`Streaming asset: ${input} → ${contentType}`);
-      const buffer = await response.arrayBuffer();
-      res.setHeader('Content-Type', contentType);
-      res.send(Buffer.from(buffer));
+      https.get(input, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': '*/*',
+          'Referer': input
+        }
+      }, stream => {
+        res.setHeader('Content-Type', stream.headers['content-type'] || 'application/octet-stream');
+        stream.pipe(res);
+      }).on('error', err => {
+        console.error('Asset stream error:', err.message);
+        res.status(500).send('Asset stream failed');
+      });
       return;
     } catch (err) {
       console.error('Asset error:', err.message);
