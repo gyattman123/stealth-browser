@@ -1,6 +1,9 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const fetch = require('node-fetch');
 const app = express();
+
+const isAsset = url => /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|mp3|wav|ogg|css|js|woff2?|ttf|otf)(\?.*)?$/i.test(url);
 
 app.get('/', async (req, res) => {
   let input = req.query.q;
@@ -8,6 +11,19 @@ app.get('/', async (req, res) => {
 
   if (!input.startsWith('http')) {
     input = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(input);
+  }
+
+  if (isAsset(input)) {
+    try {
+      const response = await fetch(input);
+      if (!response.ok) throw new Error(`Asset fetch failed: ${response.status}`);
+      res.setHeader('Content-Type', response.headers.get('content-type') || 'application/octet-stream');
+      response.body.pipe(res);
+      return;
+    } catch (err) {
+      console.error('Asset error:', err.message);
+      return res.status(500).send('Asset proxy error');
+    }
   }
 
   let browser;
@@ -65,6 +81,12 @@ app.get('/', async (req, res) => {
           el.setAttribute('style', updated);
         }
       });
+
+      document.querySelectorAll('video, audio, source, iframe, link[rel="stylesheet"], script[src]').forEach(tag => {
+        const attr = tag.tagName === 'LINK' ? 'href' : 'src';
+        const val = tag.getAttribute(attr);
+        if (val) tag.setAttribute(attr, rewrite(val));
+      });
     });
 
     const html = await page.content();
@@ -79,5 +101,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Full JS + image containment proxy running');
+  console.log('🚀 Full containment proxy running');
 });
