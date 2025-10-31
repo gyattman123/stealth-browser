@@ -1,6 +1,5 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
-const fetch = require('node-fetch');
 const app = express();
 
 const isAsset = url => /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|mp3|wav|ogg|css|js|woff2?|ttf|otf)(\?.*)?$/i.test(url);
@@ -29,7 +28,7 @@ app.get('/', async (req, res) => {
   let browser;
   try {
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -101,5 +100,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Full containment proxy running');
+  console.log('🚀 Full containment proxy running with Puppeteer v24+');
 });
