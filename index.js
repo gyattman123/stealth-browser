@@ -26,6 +26,8 @@ app.get('/', async (req, res) => {
         }
       }, stream => {
         res.setHeader('Content-Type', stream.headers['content-type'] || 'application/octet-stream');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         stream.pipe(res);
       }).on('error', err => {
         console.error('Asset stream error:', err.message);
@@ -93,6 +95,43 @@ app.get('/', async (req, res) => {
         }
       });
 
+      document.querySelectorAll('[data-srcset]').forEach(el => {
+        const raw = el.getAttribute('data-srcset');
+        if (raw) {
+          const updated = raw.split(',').map(part => {
+            const [url, scale] = part.trim().split(' ');
+            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            return scale ? `${proxied} ${scale}` : proxied;
+          }).join(', ');
+          el.setAttribute('srcset', updated);
+          el.removeAttribute('data-srcset');
+        }
+      });
+
+      document.querySelectorAll('[srcset]').forEach(el => {
+        const raw = el.getAttribute('srcset');
+        if (raw) {
+          const updated = raw.split(',').map(part => {
+            const [url, scale] = part.trim().split(' ');
+            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            return scale ? `${proxied} ${scale}` : proxied;
+          }).join(', ');
+          el.setAttribute('srcset', updated);
+        }
+      });
+
+      document.querySelectorAll('source[srcset]').forEach(source => {
+        const raw = source.getAttribute('srcset');
+        if (raw) {
+          const updated = raw.split(',').map(part => {
+            const [url, scale] = part.trim().split(' ');
+            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            return scale ? `${proxied} ${scale}` : proxied;
+          }).join(', ');
+          source.setAttribute('srcset', updated);
+        }
+      });
+
       document.querySelectorAll('[style]').forEach(el => {
         const style = el.getAttribute('style');
         if (style && style.includes('url(')) {
@@ -103,34 +142,10 @@ app.get('/', async (req, res) => {
         }
       });
 
-      document.querySelectorAll('video, audio, source, iframe, link[rel="stylesheet"], script[src]').forEach(tag => {
+      document.querySelectorAll('video, audio, iframe, link[rel="stylesheet"], script[src]').forEach(tag => {
         const attr = tag.tagName === 'LINK' ? 'href' : 'src';
         const val = tag.getAttribute(attr);
         if (val) tag.setAttribute(attr, rewrite(val));
-      });
-
-      document.querySelectorAll('[srcset]').forEach(el => {
-        const srcset = el.getAttribute('srcset');
-        if (srcset) {
-          const updated = srcset.split(',').map(part => {
-            const [url, scale] = part.trim().split(' ');
-            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
-            return scale ? `${proxied} ${scale}` : proxied;
-          }).join(', ');
-          el.setAttribute('srcset', updated);
-        }
-      });
-
-      document.querySelectorAll('source[srcset]').forEach(source => {
-        const srcset = source.getAttribute('srcset');
-        if (srcset) {
-          const updated = srcset.split(',').map(part => {
-            const [url, scale] = part.trim().split(' ');
-            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
-            return scale ? `${proxied} ${scale}` : proxied;
-          }).join(', ');
-          source.setAttribute('srcset', updated);
-        }
       });
     });
 
