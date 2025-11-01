@@ -59,7 +59,7 @@ app.get('/', async (req, res) => {
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    await page.goto(input, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(input, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     await page.evaluate(() => {
       const rewrite = url => {
@@ -82,6 +82,15 @@ app.get('/', async (req, res) => {
       document.querySelectorAll('img').forEach(img => {
         const src = img.getAttribute('src');
         if (src) img.setAttribute('src', rewrite(src));
+      });
+
+      document.querySelectorAll('img[data-src]').forEach(img => {
+        const raw = img.getAttribute('data-src');
+        if (raw) {
+          const rewritten = rewrite(raw);
+          img.setAttribute('src', rewritten);
+          img.removeAttribute('data-src');
+        }
       });
 
       document.querySelectorAll('[style]').forEach(el => {
