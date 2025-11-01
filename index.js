@@ -19,12 +19,14 @@ app.get('/', async (req, res) => {
     try {
       https.get(input, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0',
           'Accept': '*/*',
           'Referer': 'https://en.wikipedia.org',
           'Accept-Encoding': 'identity'
         }
       }, stream => {
+        res.removeHeader('Content-Security-Policy');
+        res.removeHeader('Content-Security-Policy-Report-Only');
         res.setHeader('Content-Type', stream.headers['content-type'] || 'application/octet-stream');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -72,25 +74,17 @@ app.get('/', async (req, res) => {
         return url;
       };
 
-      // Rewrite static DOM
-      document.querySelectorAll('a').forEach(a => {
-        a.href = rewrite(a.href);
-      });
-
-      document.querySelectorAll('form').forEach(form => {
-        const action = form.getAttribute('action');
-        if (action) form.setAttribute('action', rewrite(action));
-      });
-
+      // Static rewrites
+      document.querySelectorAll('a').forEach(a => a.href = rewrite(a.href));
+      document.querySelectorAll('form').forEach(f => f.action = rewrite(f.action));
       document.querySelectorAll('img').forEach(img => {
         const raw = img.getAttribute('src');
-        if (raw && !raw.startsWith('/?q=')) {
+        if (raw) {
           const rewritten = rewrite(raw);
           img.setAttribute('src', rewritten);
           img.src = rewritten;
         }
       });
-
       document.querySelectorAll('img[data-src]').forEach(img => {
         const raw = img.getAttribute('data-src');
         if (raw) {
@@ -100,9 +94,8 @@ app.get('/', async (req, res) => {
           img.removeAttribute('data-src');
         }
       });
-
-      document.querySelectorAll('[data-srcset]').forEach(el => {
-        const raw = el.getAttribute('data-srcset');
+      document.querySelectorAll('[data-srcset], [srcset]').forEach(el => {
+        const raw = el.getAttribute('data-srcset') || el.getAttribute('srcset');
         if (raw) {
           const updated = raw.split(',').map(part => {
             const [url, scale] = part.trim().split(' ');
@@ -113,19 +106,6 @@ app.get('/', async (req, res) => {
           el.removeAttribute('data-srcset');
         }
       });
-
-      document.querySelectorAll('[srcset]').forEach(el => {
-        const raw = el.getAttribute('srcset');
-        if (raw) {
-          const updated = raw.split(',').map(part => {
-            const [url, scale] = part.trim().split(' ');
-            const proxied = rewrite(url);
-            return scale ? `${proxied} ${scale}` : proxied;
-          }).join(', ');
-          el.setAttribute('srcset', updated);
-        }
-      });
-
       document.querySelectorAll('source[srcset]').forEach(source => {
         const raw = source.getAttribute('srcset');
         if (raw) {
@@ -137,24 +117,22 @@ app.get('/', async (req, res) => {
           source.setAttribute('srcset', updated);
         }
       });
-
       document.querySelectorAll('[style]').forEach(el => {
         const style = el.getAttribute('style');
         if (style && style.includes('url(')) {
-          const updated = style.replace(/url\(["']?(https?:\/\/[^"')]+)["']?\)/g, (match, url) => {
+          const updated = style.replace(/url\(["']?(https?:\/\/[^"')]+)["']?\)/g, (_, url) => {
             return `url("${rewrite(url)}")`;
           });
           el.setAttribute('style', updated);
         }
       });
-
       document.querySelectorAll('video, audio, iframe, link[rel="stylesheet"], script[src]').forEach(tag => {
         const attr = tag.tagName === 'LINK' ? 'href' : 'src';
         const val = tag.getAttribute(attr);
         if (val) tag.setAttribute(attr, rewrite(val));
       });
 
-      // Inject dynamic containment patch
+      // Dynamic containment patch
       window.fetch = (orig => (...args) => {
         if (args[0] && typeof args[0] === 'string' && args[0].startsWith('http')) {
           args[0] = rewrite(args[0]);
@@ -184,6 +162,22 @@ app.get('/', async (req, res) => {
           });
         }
       };
+
+      // MutationObserver for late image loads
+      new MutationObserver(mutations => {
+        mutations.forEach(m => {
+          m.addedNodes.forEach(node => {
+            if (node.tagName === 'IMG') {
+              const raw = node.getAttribute('src');
+              if (raw && !raw.startsWith('/?q=')) {
+                const rewritten = rewrite(raw);
+                node.setAttribute('src', rewritten);
+                node.src = rewritten;
+              }
+            }
+          });
+        });
+      }).observe(document.body, { childList: true, subtree: true });
     });
 
     const html = await page.content();
@@ -198,5 +192,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Full containment proxy running with dynamic JS patching');
+  console.log('🚀 Proxy running with full dynamic containment and CSP stripping');
 });
