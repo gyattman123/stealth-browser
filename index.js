@@ -72,6 +72,7 @@ app.get('/', async (req, res) => {
         return url;
       };
 
+      // Rewrite static DOM
       document.querySelectorAll('a').forEach(a => {
         a.href = rewrite(a.href);
       });
@@ -82,8 +83,12 @@ app.get('/', async (req, res) => {
       });
 
       document.querySelectorAll('img').forEach(img => {
-        const src = img.getAttribute('src');
-        if (src) img.setAttribute('src', rewrite(src));
+        const raw = img.getAttribute('src');
+        if (raw && !raw.startsWith('/?q=')) {
+          const rewritten = rewrite(raw);
+          img.setAttribute('src', rewritten);
+          img.src = rewritten;
+        }
       });
 
       document.querySelectorAll('img[data-src]').forEach(img => {
@@ -91,6 +96,7 @@ app.get('/', async (req, res) => {
         if (raw) {
           const rewritten = rewrite(raw);
           img.setAttribute('src', rewritten);
+          img.src = rewritten;
           img.removeAttribute('data-src');
         }
       });
@@ -100,7 +106,7 @@ app.get('/', async (req, res) => {
         if (raw) {
           const updated = raw.split(',').map(part => {
             const [url, scale] = part.trim().split(' ');
-            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            const proxied = rewrite(url);
             return scale ? `${proxied} ${scale}` : proxied;
           }).join(', ');
           el.setAttribute('srcset', updated);
@@ -113,7 +119,7 @@ app.get('/', async (req, res) => {
         if (raw) {
           const updated = raw.split(',').map(part => {
             const [url, scale] = part.trim().split(' ');
-            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            const proxied = rewrite(url);
             return scale ? `${proxied} ${scale}` : proxied;
           }).join(', ');
           el.setAttribute('srcset', updated);
@@ -125,7 +131,7 @@ app.get('/', async (req, res) => {
         if (raw) {
           const updated = raw.split(',').map(part => {
             const [url, scale] = part.trim().split(' ');
-            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            const proxied = rewrite(url);
             return scale ? `${proxied} ${scale}` : proxied;
           }).join(', ');
           source.setAttribute('srcset', updated);
@@ -136,7 +142,7 @@ app.get('/', async (req, res) => {
         const style = el.getAttribute('style');
         if (style && style.includes('url(')) {
           const updated = style.replace(/url\(["']?(https?:\/\/[^"')]+)["']?\)/g, (match, url) => {
-            return `url("/?q=${encodeURIComponent(url)}")`;
+            return `url("${rewrite(url)}")`;
           });
           el.setAttribute('style', updated);
         }
@@ -147,6 +153,37 @@ app.get('/', async (req, res) => {
         const val = tag.getAttribute(attr);
         if (val) tag.setAttribute(attr, rewrite(val));
       });
+
+      // Inject dynamic containment patch
+      window.fetch = (orig => (...args) => {
+        if (args[0] && typeof args[0] === 'string' && args[0].startsWith('http')) {
+          args[0] = rewrite(args[0]);
+        }
+        return orig(...args);
+      })(window.fetch);
+
+      window.XMLHttpRequest = class extends XMLHttpRequest {
+        open(method, url, ...rest) {
+          if (url && typeof url === 'string' && url.startsWith('http')) {
+            url = rewrite(url);
+          }
+          super.open(method, url, ...rest);
+        }
+      };
+
+      window.Image = class extends Image {
+        constructor(...args) {
+          super(...args);
+          Object.defineProperty(this, 'src', {
+            set: val => {
+              if (val && typeof val === 'string' && val.startsWith('http')) {
+                val = rewrite(val);
+              }
+              super.src = val;
+            }
+          });
+        }
+      };
     });
 
     const html = await page.content();
@@ -161,5 +198,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Full containment proxy running with Puppeteer v24+');
+  console.log('🚀 Full containment proxy running with dynamic JS patching');
 });
