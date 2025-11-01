@@ -99,6 +99,30 @@ app.get('/', async (req, res) => {
         const val = tag.getAttribute(attr);
         if (val) tag.setAttribute(attr, rewrite(val));
       });
+
+      document.querySelectorAll('[srcset]').forEach(el => {
+        const srcset = el.getAttribute('srcset');
+        if (srcset) {
+          const updated = srcset.split(',').map(part => {
+            const [url, scale] = part.trim().split(' ');
+            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            return scale ? `${proxied} ${scale}` : proxied;
+          }).join(', ');
+          el.setAttribute('srcset', updated);
+        }
+      });
+
+      document.querySelectorAll('source[srcset]').forEach(source => {
+        const srcset = source.getAttribute('srcset');
+        if (srcset) {
+          const updated = srcset.split(',').map(part => {
+            const [url, scale] = part.trim().split(' ');
+            const proxied = '/?q=' + encodeURIComponent(url.startsWith('//') ? 'https:' + url : url);
+            return scale ? `${proxied} ${scale}` : proxied;
+          }).join(', ');
+          source.setAttribute('srcset', updated);
+        }
+      });
     });
 
     const html = await page.content();
