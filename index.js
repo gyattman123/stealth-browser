@@ -19,9 +19,10 @@ app.get('/', async (req, res) => {
     try {
       https.get(input, {
         headers: {
-          'User-Agent': 'Mozilla/5.0',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
           'Accept': '*/*',
-          'Referer': input
+          'Referer': 'https://en.wikipedia.org',
+          'Accept-Encoding': 'identity'
         }
       }, stream => {
         res.setHeader('Content-Type', stream.headers['content-type'] || 'application/octet-stream');
