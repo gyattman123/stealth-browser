@@ -10,7 +10,6 @@ app.get('/', async (req, res) => {
   if (!input) return res.status(400).send('Missing ?q=');
 
   input = decodeURIComponent(input);
-
   if (!input.startsWith('http')) {
     input = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(input);
   }
@@ -63,7 +62,7 @@ app.get('/', async (req, res) => {
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    await page.goto(input, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(input, { waitUntil: 'networkidle2', timeout: 30000 });
 
     await page.evaluate(() => {
       const rewrite = url => {
@@ -185,12 +184,12 @@ app.get('/', async (req, res) => {
     res.send(html);
   } catch (err) {
     console.error(`Navigation error: ${err.message}`);
-    res.status(504).send(`Navigation failed: ${err.message}`);
+    res.status(502).send(`Navigation failed: ${err.message}`);
   } finally {
     if (browser) await browser.close();
   }
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Proxy running with full dynamic containment and CSP stripping');
+  console.log('🚀 Proxy running with full containment, CSP stripping, and crashout resistance');
 });
