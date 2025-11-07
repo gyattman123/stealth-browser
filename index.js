@@ -62,6 +62,16 @@ app.get('/', async (req, res) => {
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
+    await page.setRequestInterception(true);
+    page.on('request', req => {
+      const type = req.resourceType();
+      if (['font'].includes(type)) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
     await page.goto(input, { waitUntil: 'networkidle2', timeout: 30000 });
 
     await page.evaluate(() => {
@@ -73,7 +83,6 @@ app.get('/', async (req, res) => {
         return url;
       };
 
-      // Static rewrites
       document.querySelectorAll('a').forEach(a => a.href = rewrite(a.href));
       document.querySelectorAll('form').forEach(f => f.action = rewrite(f.action));
       document.querySelectorAll('img').forEach(img => {
@@ -131,7 +140,6 @@ app.get('/', async (req, res) => {
         if (val) tag.setAttribute(attr, rewrite(val));
       });
 
-      // Dynamic containment patch
       window.fetch = (orig => (...args) => {
         if (args[0] && typeof args[0] === 'string' && args[0].startsWith('http')) {
           args[0] = rewrite(args[0]);
@@ -162,7 +170,18 @@ app.get('/', async (req, res) => {
         }
       };
 
-      // MutationObserver for late image loads
+      window.mw = window.mw || {};
+      window.mw.loader = {
+        load: url => {
+          if (typeof url === 'string' && url.startsWith('http')) {
+            const rewritten = rewrite(url);
+            const script = document.createElement('script');
+            script.src = rewritten;
+            document.head.appendChild(script);
+          }
+        }
+      };
+
       new MutationObserver(mutations => {
         mutations.forEach(m => {
           m.addedNodes.forEach(node => {
@@ -191,5 +210,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Proxy running with full containment, CSP stripping, and crashout resistance');
+  console.log('🚀 Proxy running with full containment, GitHub support, and Wikipedia image patching');
 });
