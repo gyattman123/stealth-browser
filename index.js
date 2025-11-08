@@ -1,168 +1,222 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const { chromium } = require('playwright');
 const https = require('https');
 const app = express();
 
-const isAsset = url => /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|mp3|wav|ogg|css|js|woff2?|ttf|otf)(\?.*)?$/i.test(url);
+/**
+ * Basic asset detection by extension.
+ * You can expand this if needed (e.g., avif, bmp).
+ */
+const isAsset = url =>
+  /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|mp3|wav|ogg|css|js|woff2?|ttf|otf)(\?.*)?$/i.test(url);
+
+/**
+ * Stream assets directly to the client with permissive CORS.
+ * Keeps images/styles/fonts from cross-origin hosts (e.g., upload.wikimedia.org) working.
+ */
+function streamAsset(input, res) {
+  https
+    .get(
+      input,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          Accept: '*/*',
+          Referer: 'https://en.wikipedia.org',
+          'Accept-Encoding': 'identity'
+        }
+      },
+      stream => {
+        res.setHeader('Content-Type', stream.headers['content-type'] || 'application/octet-stream');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        stream.pipe(res);
+      }
+    )
+    .on('error', err => {
+      console.error('Asset stream error:', err.message);
+      res.status(500).send('Asset stream failed');
+    });
+}
+
+/**
+ * Rewriter for absolute/relative URLs to route through our proxy.
+ */
+function rewriteUrl(url, origin) {
+  if (!url) return url;
+  if (url.startsWith('//')) return '/?q=' + encodeURIComponent('https:' + url);
+  if (url.startsWith('/')) return '/?q=' + encodeURIComponent(origin + url);
+  if (/^https?:\/\//i.test(url)) return '/?q=' + encodeURIComponent(url);
+  return url;
+}
 
 app.get('/', async (req, res) => {
   let input = req.query.q;
   if (!input) return res.status(400).send('Missing ?q=');
 
   input = decodeURIComponent(input);
-  if (!input.startsWith('http')) {
+
+  // Default to a Wikipedia article if a bare term is provided
+  if (!/^https?:\/\//i.test(input)) {
     input = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(input);
   }
 
+  // Direct asset passthrough
   if (isAsset(input)) {
-    try {
-      https.get(input, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': '*/*',
-          'Referer': 'https://en.wikipedia.org',
-          'Accept-Encoding': 'identity'
-        }
-      }, stream => {
-        res.removeHeader('Content-Security-Policy');
-        res.removeHeader('Content-Security-Policy-Report-Only');
-        res.setHeader('Content-Type', stream.headers['content-type'] || 'application/octet-stream');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        stream.pipe(res);
-      }).on('error', err => {
-        console.error('Asset stream error:', err.message);
-        res.status(500).send('Asset stream failed');
-      });
-      return;
-    } catch (err) {
-      console.error('Asset error:', err.message);
-      return res.status(500).send('Asset proxy error');
-    }
+    return streamAsset(input, res);
   }
 
   let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--disable-features=site-per-process',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--single-process'
-      ]
+    // Launch Playwright Chromium
+    browser = await chromium.launch({ headless: true });
+
+    // Use a context to control UA/locale; avoids per-page overrides and is cleaner.
+    const context = await browser.newContext({
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      locale: 'en-US'
     });
+    const page = await context.newPage();
 
-    const page = await browser.newPage();
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
-    await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
-
-    await page.setRequestInterception(true);
-    page.on('request', req => {
+    // Intercept requests for performance and containment.
+    await page.route('**/*', route => {
+      const req = route.request();
       const type = req.resourceType();
-      if (['font'].includes(type)) {
-        req.abort();
-      } else {
-        req.continue();
-      }
+
+      // Block purely cosmetic heavy resources to reduce load (fonts).
+      if (type === 'font') return route.abort();
+
+      // Let everything else through; DOM-level rewriting will proxy URLs in the rendered HTML.
+      return route.continue();
     });
 
-    await page.goto(input, { waitUntil: 'networkidle2', timeout: 30000 });
+    // Navigate and wait for network to settle.
+    await page.goto(input, { waitUntil: 'networkidle' });
 
-    await page.evaluate(() => {
-      const rewrite = url => {
+    // Inject a permissive CSP meta in case the page enforces CSP via meta tag.
+    await page.addScriptTag({
+      content:
+        "(() => { const m = document.createElement('meta'); m.httpEquiv='Content-Security-Policy'; m.content=\"default-src * 'unsafe-inline' 'unsafe-eval' data: blob:\"; document.head && document.head.appendChild(m); })();"
+    });
+
+    // Containment + URL rewriting in the DOM and runtime.
+    await page.evaluate(origin => {
+      const proxify = url => rewriteUrl(url, origin);
+
+      function rewriteUrl(url, origin) {
         if (!url) return url;
         if (url.startsWith('//')) return '/?q=' + encodeURIComponent('https:' + url);
-        if (url.startsWith('/')) return '/?q=' + encodeURIComponent(location.origin + url);
-        if (url.startsWith('http')) return '/?q=' + encodeURIComponent(url);
+        if (url.startsWith('/')) return '/?q=' + encodeURIComponent(origin + url);
+        if (/^https?:\/\//i.test(url)) return '/?q=' + encodeURIComponent(url);
         return url;
-      };
+      }
 
-      document.querySelectorAll('a').forEach(a => a.href = rewrite(a.href));
-      document.querySelectorAll('form').forEach(f => f.action = rewrite(f.action));
+      // Static DOM rewrites
+      document.querySelectorAll('a').forEach(a => (a.href = proxify(a.href)));
+      document.querySelectorAll('form').forEach(f => (f.action = proxify(f.action)));
+
       document.querySelectorAll('img').forEach(img => {
         const raw = img.getAttribute('src');
         if (raw) {
-          const rewritten = rewrite(raw);
+          const rewritten = proxify(raw);
           img.setAttribute('src', rewritten);
           img.src = rewritten;
         }
       });
+
       document.querySelectorAll('img[data-src]').forEach(img => {
         const raw = img.getAttribute('data-src');
         if (raw) {
-          const rewritten = rewrite(raw);
+          const rewritten = proxify(raw);
           img.setAttribute('src', rewritten);
           img.src = rewritten;
           img.removeAttribute('data-src');
         }
       });
+
       document.querySelectorAll('[data-srcset], [srcset]').forEach(el => {
         const raw = el.getAttribute('data-srcset') || el.getAttribute('srcset');
         if (raw) {
-          const updated = raw.split(',').map(part => {
-            const [url, scale] = part.trim().split(' ');
-            const proxied = rewrite(url);
-            return scale ? `${proxied} ${scale}` : proxied;
-          }).join(', ');
+          const updated = raw
+            .split(',')
+            .map(part => {
+              const [u, scale] = part.trim().split(/\s+/);
+              const p = proxify(u);
+              return scale ? `${p} ${scale}` : p;
+            })
+            .join(', ');
           el.setAttribute('srcset', updated);
           el.removeAttribute('data-srcset');
         }
       });
+
       document.querySelectorAll('source[srcset]').forEach(source => {
         const raw = source.getAttribute('srcset');
         if (raw) {
-          const updated = raw.split(',').map(part => {
-            const [url, scale] = part.trim().split(' ');
-            const proxied = rewrite(url);
-            return scale ? `${proxied} ${scale}` : proxied;
-          }).join(', ');
+          const updated = raw
+            .split(',')
+            .map(part => {
+              const [u, scale] = part.trim().split(/\s+/);
+              const p = proxify(u);
+              return scale ? `${p} ${scale}` : p;
+            })
+            .join(', ');
           source.setAttribute('srcset', updated);
         }
       });
+
+      // Inline style url(...) rewrites
       document.querySelectorAll('[style]').forEach(el => {
-        const style = el.getAttribute('style');
-        if (style && style.includes('url(')) {
-          const updated = style.replace(/url\(["']?(https?:\/\/[^"')]+)["']?\)/g, (_, url) => {
-            return `url("${rewrite(url)}")`;
-          });
+        const style = el.getAttribute('style') || '';
+        if (style.includes('url(')) {
+          const updated = style.replace(
+            /url\(\s*["']?(https?:\/\/[^"')]+)["']?\s*\)/g,
+            (_, u) => `url("${proxify(u)}")`
+          );
           el.setAttribute('style', updated);
         }
       });
-      document.querySelectorAll('video, audio, iframe, link[rel="stylesheet"], script[src]').forEach(tag => {
-        const attr = tag.tagName === 'LINK' ? 'href' : 'src';
-        const val = tag.getAttribute(attr);
-        if (val) tag.setAttribute(attr, rewrite(val));
-      });
 
-      window.fetch = (orig => (...args) => {
-        if (args[0] && typeof args[0] === 'string' && args[0].startsWith('http')) {
-          args[0] = rewrite(args[0]);
+      // Media/iframe/script/link src rewrites
+      document
+        .querySelectorAll('video, audio, iframe, link[rel="stylesheet"], script[src]')
+        .forEach(tag => {
+          const attr = tag.tagName === 'LINK' ? 'href' : 'src';
+          const val = tag.getAttribute(attr);
+          if (val) tag.setAttribute(attr, proxify(val));
+        });
+
+      // Runtime containment: fetch / XHR / Image
+      const origFetch = window.fetch;
+      window.fetch = (...args) => {
+        if (typeof args[0] === 'string' && /^https?:\/\//i.test(args[0])) {
+          args[0] = proxify(args[0]);
         }
-        return orig(...args);
-      })(window.fetch);
+        return origFetch(...args);
+      };
 
-      window.XMLHttpRequest = class extends XMLHttpRequest {
+      const OrigXHR = window.XMLHttpRequest;
+      window.XMLHttpRequest = class extends OrigXHR {
         open(method, url, ...rest) {
-          if (url && typeof url === 'string' && url.startsWith('http')) {
-            url = rewrite(url);
+          if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+            url = proxify(url);
           }
-          super.open(method, url, ...rest);
+          return super.open(method, url, ...rest);
         }
       };
 
-      window.Image = class extends Image {
+      const OrigImage = window.Image;
+      window.Image = class extends OrigImage {
         constructor(...args) {
           super(...args);
           Object.defineProperty(this, 'src', {
+            configurable: true,
+            enumerable: true,
+            get: () => super.src,
             set: val => {
-              if (val && typeof val === 'string' && val.startsWith('http')) {
-                val = rewrite(val);
+              if (typeof val === 'string' && /^https?:\/\//i.test(val)) {
+                val = proxify(val);
               }
               super.src = val;
             }
@@ -170,45 +224,81 @@ app.get('/', async (req, res) => {
         }
       };
 
-      window.mw = window.mw || {};
-      window.mw.loader = {
-        load: url => {
-          if (typeof url === 'string' && url.startsWith('http')) {
-            const rewritten = rewrite(url);
-            const script = document.createElement('script');
-            script.src = rewritten;
-            document.head.appendChild(script);
-          }
+      // Patch MediaWiki dynamic script loader minimally
+      const mw = (window.mw = window.mw || {});
+      mw.loader = mw.loader || {};
+      const origLoad = mw.loader.load;
+      mw.loader.load = function (urlOrModule) {
+        // If MediaWiki calls loader with a URL, proxify it
+        if (typeof urlOrModule === 'string' && /^https?:\/\//i.test(urlOrModule)) {
+          const s = document.createElement('script');
+          s.src = proxify(urlOrModule);
+          document.head.appendChild(s);
+          return;
         }
+        // Fall back to original if present (module names etc.)
+        if (typeof origLoad === 'function') return origLoad.apply(this, arguments);
       };
 
+      // Trap late-added IMG nodes for lazy-loading frameworks
       new MutationObserver(mutations => {
-        mutations.forEach(m => {
-          m.addedNodes.forEach(node => {
-            if (node.tagName === 'IMG') {
-              const raw = node.getAttribute('src');
-              if (raw && !raw.startsWith('/?q=')) {
-                const rewritten = rewrite(raw);
-                node.setAttribute('src', rewritten);
-                node.src = rewritten;
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node && node.nodeType === 1) {
+              if (node.tagName === 'IMG') {
+                const raw = node.getAttribute('src');
+                if (raw && !raw.startsWith('/?q=')) {
+                  const r = proxify(raw);
+                  node.setAttribute('src', r);
+                  node.src = r;
+                }
+                const ds = node.getAttribute('data-src');
+                if (ds) {
+                  const r2 = proxify(ds);
+                  node.setAttribute('src', r2);
+                  node.src = r2;
+                  node.removeAttribute('data-src');
+                }
+                const ss = node.getAttribute('srcset');
+                if (ss) {
+                  const upd = ss
+                    .split(',')
+                    .map(part => {
+                      const [u, scale] = part.trim().split(/\s+/);
+                      const p = proxify(u);
+                      return scale ? `${p} ${scale}` : p;
+                    })
+                    .join(', ');
+                  node.setAttribute('srcset', upd);
+                }
+              } else {
+                // Rewrite common URL-bearing attributes on other nodes
+                ['src', 'href'].forEach(attr => {
+                  const v = node.getAttribute && node.getAttribute(attr);
+                  if (v && /^https?:\/\//i.test(v)) {
+                    node.setAttribute(attr, proxify(v));
+                  }
+                });
               }
             }
-          });
-        });
-      }).observe(document.body, { childList: true, subtree: true });
-    });
+          }
+        }
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    }, new URL(input).origin);
 
+    // Return rendered HTML
     const html = await page.content();
-    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
-    console.error(`Navigation error: ${err.message}`);
+    console.error('Navigation error:', err.message);
     res.status(502).send(`Navigation failed: ${err.message}`);
   } finally {
     if (browser) await browser.close();
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log('🚀 Proxy running with full containment, GitHub support, and Wikipedia image patching');
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Playwright proxy listening on port ${PORT}`);
 });
