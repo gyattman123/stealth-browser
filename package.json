@@ -1,12 +1,25 @@
 {
-  "name": "proxy-browser",
+  "name": "playwright-proxy",
   "version": "1.0.0",
+  "description": "A Playwright-based web proxy with asset containment and CSP stripping, deployable on Render.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^24.15.0"
-  }
+    "playwright": "^1.43.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "proxy",
+    "playwright",
+    "render",
+    "express",
+    "containment"
+  ],
+  "author": "",
+  "license": "MIT"
 }
