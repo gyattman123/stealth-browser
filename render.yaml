@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: playwright-proxy
+    env: node
+    buildCommand: npm install && npx playwright install chromium
+    startCommand: npm start
+    envVars:
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: 0
