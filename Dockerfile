@@ -31,3 +31,25 @@ RUN npm install
 
 EXPOSE 3000
 CMD ["node", "index.js"]
+
+# Use Playwright's official image with browsers preinstalled
+FROM mcr.microsoft.com/playwright:focal
+
+# Set working directory
+WORKDIR /app
+
+# Copy package.json and package-lock.json first for caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of your app
+COPY . .
+
+# Expose port
+EXPOSE 3000
+
+# Start the app
+CMD ["npm", "start"]
+
