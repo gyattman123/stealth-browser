@@ -1,9 +1,9 @@
 services:
   - type: web
     name: playwright-proxy
-    env: node
-    buildCommand: npx playwright install chromium
-    startCommand: npm start
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
     envVars:
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: 0
+      - key: NODE_ENV
+        value: production
