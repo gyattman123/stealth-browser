@@ -2,6 +2,7 @@ services:
   - type: web
     name: playwright-proxy
     env: node
+    plan: free
     buildCommand: npm install && npx playwright install chromium
     startCommand: npm start
     envVars:
