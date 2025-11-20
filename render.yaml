@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: playwright-proxy
-    env: docker
-    plan: free
-    dockerfilePath: Dockerfile
-    envVars:
-      - key: NODE_ENV
-        value: production
